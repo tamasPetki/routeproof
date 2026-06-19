@@ -1,0 +1,51 @@
+# Dogfood suite: real user intents for HeadlessTracker (the MCP server I maintain).
+# Run:  routeproof examples/headless-tracker.intents.yaml --server "npx headless-tracker mcp"
+#
+# Several of these are the exact phrasings that mis-routed on my own server
+# before I fixed the descriptions — kept here as regression anchors.
+
+server: npx headless-tracker mcp
+intents:
+  - id: overview
+    query: "what do I own across everything?"
+    expect: get_holdings
+
+  - id: allocation
+    query: "how is my portfolio allocated?"
+    expect: get_allocations
+
+  - id: stablecoin-split
+    query: "how much of my money is in stablecoins vs crypto?"
+    expect: get_allocations
+    note: "'cash' asset class == stablecoins; used to be ambiguous."
+
+  - id: which-wallets
+    query: "which wallets am I tracking?"
+    expect: list_accounts
+    note: "triggers used to say 'exchanges', not 'wallets'."
+
+  - id: pnl
+    query: "how am I doing overall, profit or loss?"
+    expect: get_pnl
+
+  - id: weekly
+    query: "how did my portfolio do this week?"
+    expect: get_pnl
+
+  - id: recent-trades
+    query: "what did I trade in the last few days?"
+    expect: get_transactions
+
+  - id: predictions
+    query: "what are my open Polymarket bets worth?"
+    expect: get_polymarket_positions
+
+  - id: stale
+    query: "my balances look out of date, can you refresh them?"
+    expect: refresh_data
+    note: "'stale balances' was not an enumerated refresh trigger."
+
+  - id: off-topic
+    query: "what's the weather in Budapest?"
+    expect: none
+    note: "nothing should route; a good server doesn't grab unrelated queries."
