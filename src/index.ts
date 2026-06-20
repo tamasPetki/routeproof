@@ -10,6 +10,7 @@ import { loadToolsFromServer } from "./mcp-client.ts";
 import { AnthropicProvider } from "./providers/anthropic.ts";
 import { evalIntent } from "./router.ts";
 import { diagnoseMisroute } from "./diagnose.ts";
+import { mapWithConcurrency } from "./concurrency.ts";
 import { summarize, toMarkdown } from "./report.ts";
 import type { EvalReport, IntentResult } from "./types.ts";
 
@@ -21,16 +22,25 @@ interface Args {
   json: boolean;
   diagnose: boolean;
   minConfidence: number;
+  concurrency: number;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { suite: "", samples: 3, json: false, diagnose: true, minConfidence: 0.8 };
+  const a: Args = {
+    suite: "",
+    samples: 3,
+    json: false,
+    diagnose: true,
+    minConfidence: 0.8,
+    concurrency: 4,
+  };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i]!;
     if (v === "--server") a.server = argv[++i];
     else if (v === "--samples") a.samples = Number(argv[++i] ?? 3);
     else if (v === "--model") a.model = argv[++i];
     else if (v === "--min-confidence") a.minConfidence = Number(argv[++i] ?? 0.8);
+    else if (v === "--concurrency") a.concurrency = Number(argv[++i] ?? 4);
     else if (v === "--json") a.json = true;
     else if (v === "--no-diagnose") a.diagnose = false;
     else if (v === "-h" || v === "--help") {
@@ -43,12 +53,13 @@ function parseArgs(argv: string[]): Args {
     throw new Error("missing <intents> file");
   }
   if (!Number.isFinite(a.samples) || a.samples < 1) throw new Error("--samples must be >= 1");
+  if (!Number.isFinite(a.concurrency) || a.concurrency < 1) throw new Error("--concurrency must be >= 1");
   return a;
 }
 
 function printUsage(): void {
   console.error(
-    'usage: routeproof <intents.json|.yaml> --server "<cmd>" [--samples N] [--model M] [--min-confidence 0..1] [--json] [--no-diagnose]',
+    'usage: routeproof <intents.json|.yaml> --server "<cmd>" [--samples N] [--concurrency N] [--model M] [--min-confidence 0..1] [--json] [--no-diagnose]',
   );
 }
 
@@ -64,10 +75,11 @@ async function main(): Promise<void> {
   if (tools.length === 0) throw new Error(`server '${server}' advertised no tools`);
 
   const provider = new AnthropicProvider(args.model);
-  const results: IntentResult[] = [];
-  for (const intent of suite.intents) {
-    results.push(await evalIntent(provider, tools, intent, args.samples));
-  }
+  const results: IntentResult[] = await mapWithConcurrency(
+    suite.intents,
+    args.concurrency,
+    (intent) => evalIntent(provider, tools, intent, args.samples),
+  );
 
   // A pass below the confidence threshold is flaky — it routes wrong a real
   // fraction of the time, which a single-sample test would miss entirely.
@@ -78,11 +90,11 @@ async function main(): Promise<void> {
   // Diagnose hard misroutes AND flaky passes — both have a real description
   // problem worth explaining. Clean, confident passes cost nothing.
   if (args.diagnose) {
-    for (const r of results) {
-      if (!r.pass || r.flaky) {
-        r.diagnosis = await diagnoseMisroute(provider, tools, r.intent, r.pick);
-      }
-    }
+    const issues = results.filter((r) => !r.pass || r.flaky);
+    const diagnoses = await mapWithConcurrency(issues, args.concurrency, (r) =>
+      diagnoseMisroute(provider, tools, r.intent, r.pick),
+    );
+    issues.forEach((r, i) => (r.diagnosis = diagnoses[i]));
   }
 
   const report: EvalReport = {

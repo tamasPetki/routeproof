@@ -60,7 +60,10 @@ export class AnthropicProvider implements Provider {
       .trim();
   }
 
-  async #post(body: Record<string, unknown>): Promise<Array<Record<string, unknown>>> {
+  async #post(
+    body: Record<string, unknown>,
+    attempt = 0,
+  ): Promise<Array<Record<string, unknown>>> {
     const res = await fetch(API, {
       method: "POST",
       headers: {
@@ -70,6 +73,19 @@ export class AnthropicProvider implements Provider {
       },
       body: JSON.stringify(body),
     });
+
+    // Retry transient overload / rate limits with exponential backoff so a big
+    // suite doesn't die on the first 429.
+    if ((res.status === 429 || res.status === 529 || res.status >= 500) && attempt < MAX_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : Math.min(8000, 500 * 2 ** attempt) + Math.floor(Math.random() * 250);
+      await sleep(waitMs);
+      return this.#post(body, attempt + 1);
+    }
+
     if (!res.ok) {
       throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
     }
@@ -77,3 +93,6 @@ export class AnthropicProvider implements Provider {
     return data.content ?? [];
   }
 }
+
+const MAX_RETRIES = 4;
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

@@ -5,11 +5,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { ToolSpec } from "./types.ts";
+import { tokenize } from "./shell.ts";
 
 export async function loadToolsFromServer(command: string): Promise<ToolSpec[]> {
-  // NOTE (Day-1 polish): naive space-split breaks on quoted args; replace with
-  // a proper shell-word tokenizer.
-  const parts = command.split(" ").filter(Boolean);
+  const parts = tokenize(command);
   const cmd = parts[0];
   if (!cmd) throw new Error("Empty server command.");
 
