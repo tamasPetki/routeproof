@@ -12,6 +12,13 @@ import { evalIntent } from "./router.ts";
 import { diagnoseMisroute } from "./diagnose.ts";
 import { mapWithConcurrency } from "./concurrency.ts";
 import { summarize, toMarkdown } from "./report.ts";
+import {
+  toBaseline,
+  parseBaseline,
+  compareToBaseline,
+  regressionMarkdown,
+} from "./baseline.ts";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { EvalReport, IntentResult } from "./types.ts";
 
 interface Args {
@@ -23,6 +30,9 @@ interface Args {
   diagnose: boolean;
   minConfidence: number;
   concurrency: number;
+  saveBaseline?: string;
+  baseline?: string;
+  driftTolerance: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -33,6 +43,7 @@ function parseArgs(argv: string[]): Args {
     diagnose: true,
     minConfidence: 0.8,
     concurrency: 4,
+    driftTolerance: 0.2,
   };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i]!;
@@ -41,6 +52,13 @@ function parseArgs(argv: string[]): Args {
     else if (v === "--model") a.model = argv[++i];
     else if (v === "--min-confidence") a.minConfidence = Number(argv[++i] ?? 0.8);
     else if (v === "--concurrency") a.concurrency = Number(argv[++i] ?? 4);
+    else if (v === "--save-baseline") {
+      a.saveBaseline = argv[++i];
+      if (!a.saveBaseline) throw new Error("--save-baseline needs a file path");
+    } else if (v === "--baseline") {
+      a.baseline = argv[++i];
+      if (!a.baseline) throw new Error("--baseline needs a file path");
+    } else if (v === "--drift-tolerance") a.driftTolerance = Number(argv[++i] ?? 0.2);
     else if (v === "--json") a.json = true;
     else if (v === "--no-diagnose") a.diagnose = false;
     else if (v === "-h" || v === "--help") {
@@ -54,12 +72,24 @@ function parseArgs(argv: string[]): Args {
   }
   if (!Number.isFinite(a.samples) || a.samples < 1) throw new Error("--samples must be >= 1");
   if (!Number.isFinite(a.concurrency) || a.concurrency < 1) throw new Error("--concurrency must be >= 1");
+  // A NaN/out-of-range tolerance would silently disable the soft half of the
+  // gate (every comparison falls outside [-tol, tol]); fail loudly instead.
+  if (!Number.isFinite(a.driftTolerance) || a.driftTolerance < 0 || a.driftTolerance > 1) {
+    throw new Error("--drift-tolerance must be a number in 0..1");
+  }
+  if (!Number.isFinite(a.minConfidence) || a.minConfidence < 0 || a.minConfidence > 1) {
+    throw new Error("--min-confidence must be a number in 0..1");
+  }
+  if (a.saveBaseline && a.baseline) {
+    throw new Error("--save-baseline and --baseline are mutually exclusive (pin, or check against a pin)");
+  }
   return a;
 }
 
 function printUsage(): void {
   console.error(
-    'usage: routeproof <intents.json|.yaml> --server "<cmd>" [--samples N] [--concurrency N] [--model M] [--min-confidence 0..1] [--json] [--no-diagnose]',
+    'usage: routeproof <intents.json|.yaml> --server "<cmd>" [--samples N] [--concurrency N] [--model M] [--min-confidence 0..1] [--json] [--no-diagnose]\n' +
+      "       regression mode: [--save-baseline <file>] to pin, [--baseline <file>] to fail on drift [--drift-tolerance 0..1]",
   );
 }
 
@@ -88,8 +118,11 @@ async function main(): Promise<void> {
   }
 
   // Diagnose hard misroutes AND flaky passes — both have a real description
-  // problem worth explaining. Clean, confident passes cost nothing.
-  if (args.diagnose) {
+  // problem worth explaining. Clean, confident passes cost nothing. Skip it in
+  // regression mode: pinning a baseline just snapshots, and the CI drift-check
+  // runs often — the diagnosis is for the standalone report, not the gate.
+  const wantDiagnose = args.diagnose && !args.saveBaseline && !args.baseline;
+  if (wantDiagnose) {
     const issues = results.filter((r) => !r.pass || r.flaky);
     const diagnoses = await mapWithConcurrency(issues, args.concurrency, (r) =>
       diagnoseMisroute(provider, tools, r.intent, r.pick),
@@ -106,6 +139,51 @@ async function main(): Promise<void> {
     results,
     score: summarize(results),
   };
+
+  // Pin: snapshot this run as the baseline and exit clean. No gate, no failure —
+  // you're declaring "this is the routing I expect from here on."
+  if (args.saveBaseline) {
+    const baseline = toBaseline(report);
+    writeFileSync(args.saveBaseline, JSON.stringify(baseline, null, 2) + "\n");
+    console.error(
+      `routeproof: pinned ${report.results.length} intents to ${args.saveBaseline} (model ${report.model}, ${report.samplesPerIntent} samples/intent).`,
+    );
+    process.exit(0);
+  }
+
+  // Check: compare against a pinned baseline and FAIL on drift. This is the CI
+  // gate — a description edit that silently re-routed a query trips it here.
+  if (args.baseline) {
+    let raw: string;
+    try {
+      raw = readFileSync(args.baseline, "utf8");
+    } catch {
+      throw new Error(`baseline file not found: ${args.baseline} — pin one first with --save-baseline ${args.baseline}`);
+    }
+    const baseline = parseBaseline(JSON.parse(raw), args.baseline);
+    const cmp = compareToBaseline(baseline, report, args.driftTolerance);
+
+    // Across models, routing differs for reasons unrelated to your edits — the
+    // comparison is meaningless, so refuse to gate on it rather than flip CI on noise.
+    if (cmp.modelMismatch) {
+      console.log(args.json ? JSON.stringify({ report, comparison: cmp }, null, 2) : regressionMarkdown(cmp));
+      console.error(
+        `routeproof: baseline was pinned on ${cmp.modelMismatch.baseline} but this run used ${cmp.modelMismatch.current}. Re-pin on the model you gate with (--save-baseline) — refusing to gate on a cross-model comparison.`,
+      );
+      process.exit(2);
+    }
+
+    // A gate that compared nothing must not report success. An empty or stale
+    // baseline (bad merge, wrong path) would otherwise mark everything "added" and exit 0.
+    if (cmp.compared === 0) {
+      throw new Error(
+        `baseline ${args.baseline} shares no intents with this suite (${report.results.length} intents, 0 matched) — re-pin with --save-baseline`,
+      );
+    }
+
+    console.log(args.json ? JSON.stringify({ report, comparison: cmp }, null, 2) : regressionMarkdown(cmp));
+    process.exit(cmp.hasRegression ? 1 : 0);
+  }
 
   console.log(args.json ? JSON.stringify(report, null, 2) : toMarkdown(report));
   process.exit(report.score.passed === report.score.total ? 0 : 1);

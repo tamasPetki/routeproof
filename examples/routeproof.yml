@@ -1,0 +1,38 @@
+# Copy this into your repo's .github/workflows/ to fail PRs that silently
+# re-route your MCP tools. routeproof replays your intents through a fresh model
+# that sees only your tool descriptions, and compares routing to a pinned baseline.
+#
+# First, pin a baseline locally and commit it:
+#   export ANTHROPIC_API_KEY=...
+#   npx routeproof routeproof.intents.yaml --server "node dist/server.js" \
+#     --save-baseline routeproof.baseline.json
+#   git add routeproof.intents.yaml routeproof.baseline.json
+#
+# Then add ANTHROPIC_API_KEY as a repository secret (Settings → Secrets → Actions).
+
+name: routeproof
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  routing:
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── REQUIRED: build your MCP server so the --server command can launch it. ──
+      # Edit this to match your project; the routeproof step fails (exit 2) if the
+      # server command can't start.
+      - run: npm ci && npm run build
+
+      - uses: tamasPetki/routeproof@v0.1
+        with:
+          intents: routeproof.intents.yaml
+          server: "node dist/server.js"
+          baseline: routeproof.baseline.json
+          # samples: 3
+          # model: claude-haiku-4-5-20251001
+          # drift-tolerance: 0.2

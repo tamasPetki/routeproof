@@ -1,0 +1,70 @@
+name: "routeproof"
+description: "Fail CI when an MCP server's tool descriptions silently re-route user intents."
+branding:
+  icon: "git-branch"
+  color: "purple"
+
+inputs:
+  intents:
+    description: "Path to the intent suite (.yaml or .json)."
+    required: true
+  server:
+    description: "Command that launches your MCP server over stdio, e.g. 'node dist/server.js'."
+    required: true
+  baseline:
+    description: "Path to the pinned baseline file to check against."
+    required: false
+    default: "routeproof.baseline.json"
+  samples:
+    description: "Samples per intent — routing is nondeterministic, so more samples steadies the confidence."
+    required: false
+    default: "3"
+  model:
+    description: "Anthropic model id to route with. Empty = routeproof's cheap default."
+    required: false
+    default: ""
+  min-confidence:
+    description: "Confidence below which a passing route is flagged flaky (0..1)."
+    required: false
+    default: "0.8"
+  drift-tolerance:
+    description: "How far a passing route's confidence may wander before it counts as drift (0..1)."
+    required: false
+    default: "0.2"
+  version:
+    description: "npm version or dist-tag of routeproof to run."
+    required: false
+    default: "latest"
+  node-version:
+    description: "Node.js version to set up before running."
+    required: false
+    default: "20"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    - name: routeproof regression check
+      shell: bash
+      # Inputs go through the environment, never spliced into the command line —
+      # so a server string with shell metacharacters can't break out of the call.
+      env:
+        RP_INTENTS: ${{ inputs.intents }}
+        RP_SERVER: ${{ inputs.server }}
+        RP_BASELINE: ${{ inputs.baseline }}
+        RP_SAMPLES: ${{ inputs.samples }}
+        RP_MODEL: ${{ inputs.model }}
+        RP_MINCONF: ${{ inputs.min-confidence }}
+        RP_DRIFT: ${{ inputs.drift-tolerance }}
+        RP_VERSION: ${{ inputs.version }}
+      run: |
+        if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+          echo "::error::ANTHROPIC_API_KEY is not set. Add it to the job env from a repository secret."
+          exit 1
+        fi
+        args=( "$RP_INTENTS" --server "$RP_SERVER" --baseline "$RP_BASELINE"
+               --samples "$RP_SAMPLES" --min-confidence "$RP_MINCONF" --drift-tolerance "$RP_DRIFT" )
+        if [ -n "$RP_MODEL" ]; then args+=( --model "$RP_MODEL" ); fi
+        npx -y "routeproof@$RP_VERSION" "${args[@]}"

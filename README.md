@@ -40,10 +40,38 @@ A bare percentage tells you that you have a problem. The **reason** tells you wh
 - **N samples, not one.** Model routing is nondeterministic. routeproof samples each intent several times and reports a **confidence**, so flaky routing shows up as flaky instead of hiding behind a lucky single run.
 - **`expect: none`.** Assert that some queries should route to *nothing* — a good server doesn't grab questions it has no business answering.
 
-## Modes (roadmap)
+## Regression mode — pin routing, fail CI on drift
 
-- ✅ **eval** — score a suite, diagnose misroutes.
-- ⏳ **regression** — pin a baseline, fail CI when an edit drops routing.
+Every description edit can silently re-route a query you weren't thinking about. So pin the current routing as a baseline, and fail CI when a later change drifts away from it:
+
+```bash
+# pin once, commit the baseline alongside your intents
+npx routeproof intents.yaml --server "node dist/server.js" --save-baseline routeproof.baseline.json
+
+# in CI: exit 1 if any route that used to pass now fails, or a solid route went shaky
+npx routeproof intents.yaml --server "node dist/server.js" --baseline routeproof.baseline.json
+```
+
+"Drift" is defined for a nondeterministic world — it is **not** "a number changed". It's a route that **broke** (was passing, now fails) or **destabilized** (confidence fell past `--drift-tolerance`, default 0.2). A failure you knowingly baselined stays green until it gets *worse*; fixes and stabilizations are reported, never gated. Comparing a baseline pinned on one model against a run on another is flagged loudly — routing differs by model.
+
+There's a GitHub Action wrapper, so the whole thing is one step:
+
+```yaml
+- uses: tamasPetki/routeproof@v0.1
+  with:
+    intents: routeproof.intents.yaml
+    server: "node dist/server.js"
+    baseline: routeproof.baseline.json
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+A copy-paste workflow lives in [`examples/routeproof.yml`](examples/routeproof.yml).
+
+## Modes
+
+- ✅ **eval** — score a suite, diagnose misroutes with a concrete description fix.
+- ✅ **regression** — pin a baseline, fail CI when an edit drops routing.
 - ⏳ **fuzz** — generate realistic intents from your descriptions and surface the ones that mis-route — blind spots you never wrote a test for.
 
 ## Install / run
