@@ -40,6 +40,22 @@ A bare percentage tells you that you have a problem. The **reason** tells you wh
 - **N samples, not one.** Model routing is nondeterministic. routeproof samples each intent several times and reports a **confidence**, so flaky routing shows up as flaky instead of hiding behind a lucky single run.
 - **`expect: none`.** Assert that some queries should route to *nothing* — a good server doesn't grab questions it has no business answering.
 
+## A worked example (on my own server)
+
+I run an MCP server, [HeadlessTracker](https://github.com/tamasPetki/HeadlessTracker) (15 tools). routeproof caught this on it:
+
+> `how much of my money is in stablecoins vs crypto?` → routed to **`get_holdings`** 60% of the time. Expected `get_allocations` (the composition tool). Flaky — a single-sample test would have called it a pass.
+
+The diagnosis was specific: `get_allocations` never claimed the *"X vs Y / how much is in stablecoins vs crypto"* framing, and `get_holdings` says *"how much X do I have"* + mentions stablecoins, so the host read it as a balance question. I edited the two descriptions to match — `get_allocations` now owns the composition phrasing, `get_holdings` redirects it — and re-ran the same suite:
+
+```
+before:  3/6 (50%)   ·   after:  6/6 (100%)
+```
+
+Both `get_holdings` and `get_pnl` controls stayed at 100% — the fix didn't cannibalise them. ([the suite](examples/headless-allocations.intents.yaml) · [the commit that fixed it](https://github.com/tamasPetki/HeadlessTracker/commit/12bf96b))
+
+**Where it does NOT fix things — and that's the honest part.** Fuzz also flagged the write/management tools (`add_wallet_address`, `remove_account`, …) at 0/10. Adding trigger words did *nothing*: those tools require an `account_id` the conversational query never contains, so the host correctly defers (lists first, or asks) rather than calling a tool it can't fill. routeproof is strongest for **directly-callable** tools; for elicitation-heavy ones, "route to none/list-first" can be correct multi-turn behaviour, not a misroute. Measuring is what tells the two apart — eyeballing the descriptions never would.
+
 ## Regression mode — pin routing, fail CI on drift
 
 Every description edit can silently re-route a query you weren't thinking about. So pin the current routing as a baseline, and fail CI when a later change drifts away from it:

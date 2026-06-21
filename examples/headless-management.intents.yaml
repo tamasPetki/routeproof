@@ -1,0 +1,48 @@
+# HeadlessTracker — management/write-tool intents.
+#
+# These ten queries were SURFACED BY routeproof's own fuzz mode against the live
+# HeadlessTracker server (2026-06-21): the read tools routed clean, but a whole
+# class of natural "add / remove / stop tracking" phrasings collapsed into
+# list_accounts or no tool at all (0/10).
+#
+# The honest lesson (this is the interesting part): the obvious fix — adding the
+# real user phrasings as triggers + a READ-ONLY guard on list_accounts — did NOT
+# move the score. Measuring revealed the real cause is structural, not lexical:
+# these mutation tools require an account_id/contract the conversational query
+# never contains, so the host correctly defers (route to list_accounts to resolve
+# the id first, or to none pending more info) rather than calling a tool it can't
+# fill. Single-shot routing eval is strongest for directly-callable tools; for
+# elicitation-heavy mutation tools, "route to none/list-first" can be correct
+# multi-turn behavior, not a misroute. That distinction is invisible until you
+# measure — which is the whole point.
+intents:
+  - id: setup-solana
+    query: "Can I link my Solana wallet so you can track it? I want to monitor my SOL and tokens on there."
+    expect: setup_connector
+  - id: setup-binance
+    query: "connect my Binance account so you can read my balances"
+    expect: setup_connector
+  - id: add-second-solana
+    query: "I've got another Solana wallet I want to keep an eye on, can you add it to the tracker?"
+    expect: add_wallet_address
+  - id: add-second-metamask
+    query: "Hey, I just realized I need to monitor a second MetaMask address on Ethereum. How do I throw that in?"
+    expect: add_wallet_address
+  - id: remove-bybit
+    query: "I want to stop tracking that Bybit account, just delete it completely"
+    expect: remove_account
+  - id: remove-polymarket
+    query: "Can you remove my Polymarket connection? I'm not using it anymore"
+    expect: remove_account
+  - id: add-arb-token
+    query: "I want to keep an eye on my ARB tokens but they're not showing up in my MetaMask wallet tracker. Can you add them?"
+    expect: add_custom_token
+  - id: add-uni-airdrop
+    query: "I just got some UNI airdropped. How do I make sure my portfolio is tracking that on Ethereum?"
+    expect: add_custom_token
+  - id: remove-arb-token
+    query: "Can you stop showing me that ARB token on my MetaMask? I don't want to see it anymore."
+    expect: remove_custom_token
+  - id: remove-gov-token
+    query: "I added some random governance token to track but it's cluttering things up - can I get rid of it?"
+    expect: remove_custom_token

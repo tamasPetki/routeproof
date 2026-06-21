@@ -1,0 +1,31 @@
+# HeadlessTracker — composition / allocation intents (the clean worked example).
+#
+# routeproof first surfaced this on 2026-06-19: "how much of my money is in
+# stablecoins vs crypto?" should route to get_allocations (the composition tool),
+# but flaked to get_holdings ~60% of the time. Both are READ tools callable
+# directly from the query, so unlike the management tools this IS wording-fixable:
+# get_allocations never claimed the "X vs Y composition" phrasing, and
+# get_holdings says "how much X do I have" + mentions stablecoins, so the host
+# reads it as a balance question. This suite measures the fix.
+#
+# The last two intents are CONTROLS — they already route correctly and must STAY
+# correct after the fix (proof the edit doesn't cannibalise the holdings/pnl tools).
+intents:
+  - id: stable-vs-crypto
+    query: "how much of my money is in stablecoins vs crypto?"
+    expect: get_allocations
+  - id: cash-split
+    query: "what's the split between my crypto and my cash right now?"
+    expect: get_allocations
+  - id: pct-stablecoins
+    query: "what percentage of my holdings is actually sitting in stablecoins?"
+    expect: get_allocations
+  - id: risky-vs-safe
+    query: "how much am I exposed to volatile coins versus the boring stable stuff?"
+    expect: get_allocations
+  - id: control-holdings
+    query: "what do I own right now across everything?"
+    expect: get_holdings
+  - id: control-pnl
+    query: "am I up or down overall this month?"
+    expect: get_pnl
