@@ -8,13 +8,18 @@
   },
   "files": [
     "dist",
+    "examples",
     "README.md",
     "LICENSE"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --target node18 --clean --external @modelcontextprotocol/sdk --external yaml",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
