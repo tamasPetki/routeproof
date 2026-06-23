@@ -7,6 +7,22 @@ export interface ToolSpec {
   inputSchema: unknown;
 }
 
+/**
+ * Capability level of a tool, used to score a misroute's *severity*, not just
+ * count it. A query that should read but grabs a write/destructive tool is a
+ * worse failure than a read→read mix-up: a perfect-looking routing score can
+ * still hide a privilege escalation. `read` < `write` < `destructive`.
+ */
+export type Tier = "read" | "write" | "destructive";
+
+/** A misroute that crossed a capability boundary: expected `from`, got `to`. */
+export interface Escalation {
+  /** Expected tier, or "none" when the intent asserted no tool should answer. */
+  from: Tier | "none";
+  /** Tier of the tool the model actually grabbed (always higher than `from`). */
+  to: Tier;
+}
+
 /** One thing a user might ask, and the tool that should handle it. */
 export interface Intent {
   id: string;
@@ -20,6 +36,12 @@ export interface Intent {
 export interface IntentSuite {
   /** Optional default server command, overridable on the CLI. */
   server?: string;
+  /**
+   * Optional map of tool name (or `*` glob, e.g. `portfolio_write_*`) → tier.
+   * Tools left unlisted default to `read`. Used to flag privilege-escalating
+   * misroutes — a read query that grabbed a write/destructive tool.
+   */
+  tiers?: Record<string, Tier>;
   intents: Intent[];
 }
 
@@ -51,6 +73,8 @@ export interface IntentResult {
   flaky?: boolean;
   /** Populated for misroutes AND flaky passes: why it went wrong + how to fix it. */
   diagnosis?: Diagnosis;
+  /** Set when this misroute grabbed a higher-privilege tool than expected. */
+  escalation?: Escalation;
 }
 
 export interface EvalReport {
@@ -59,6 +83,8 @@ export interface EvalReport {
   samplesPerIntent: number;
   /** Confidence below which a passing intent is flagged as flaky (0..1). */
   minConfidence?: number;
+  /** Tool→tier map in effect, so the report can name the capability boundaries. */
+  tiers?: Record<string, Tier>;
   tools: ToolSpec[];
   results: IntentResult[];
   score: { passed: number; total: number };

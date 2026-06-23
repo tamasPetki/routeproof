@@ -5,6 +5,14 @@
 # before I fixed the descriptions — kept here as regression anchors.
 
 server: npx headless-tracker mcp
+
+# This suite is read-only except for refresh_data, which mutates server state.
+# Tiers let routeproof grade severity: the `off-topic` intent below should route
+# NOWHERE, so if it ever grabbed refresh_data that's a privilege-escalating
+# misroute, not just a wrong pick. Unlisted tools default to `read`.
+tiers:
+  refresh_data: write
+
 intents:
   - id: overview
     query: "what do I own across everything?"

@@ -3,7 +3,8 @@
 // tool each one SHOULD route to." routeproof checks reality against it.
 
 import { readFileSync } from "node:fs";
-import type { IntentSuite, Intent } from "./types.ts";
+import type { IntentSuite, Intent, Tier } from "./types.ts";
+import { TIERS } from "./tiers.ts";
 
 export async function loadIntentSuite(path: string): Promise<IntentSuite> {
   const raw = readFileSync(path, "utf8");
@@ -58,6 +59,25 @@ export function validateSuite(data: unknown, source = "<intents>"): IntentSuite 
   });
   return {
     server: typeof obj.server === "string" ? obj.server : undefined,
+    tiers: validateTiers(obj.tiers, source),
     intents,
   };
+}
+
+/** Validate the optional `tiers` map: tool name (or `*` glob) → read|write|destructive. */
+export function validateTiers(raw: unknown, source = "<intents>"): Record<string, Tier> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`${source}: 'tiers' must be a map of tool-name (or glob) → ${TIERS.join("|")}`);
+  }
+  const out: Record<string, Tier> = {};
+  for (const [tool, level] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof level !== "string" || !TIERS.includes(level as Tier)) {
+      throw new Error(
+        `${source}: tier for '${tool}' must be one of ${TIERS.join("|")} (got ${JSON.stringify(level)})`,
+      );
+    }
+    out[tool] = level as Tier;
+  }
+  return Object.keys(out).length ? out : undefined;
 }

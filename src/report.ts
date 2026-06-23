@@ -20,9 +20,30 @@ export function toMarkdown(report: EvalReport): string {
     `**Server:** \`${report.server}\`  ·  **Model:** ${report.model}  ·  **Samples/intent:** ${report.samplesPerIntent}`,
     "",
   );
+  const escalations = report.results.filter((r) => r.escalation);
   let headline = `**Routing score: ${score.passed}/${score.total} (${pct}%)**`;
   if (flakyCount) headline += `  ·  ⚠️ ${flakyCount} flaky (passed below ${minPct}% confidence)`;
+  if (escalations.length) headline += `  ·  🚨 ${escalations.length} privilege-escalating`;
   lines.push(headline, "");
+
+  // Lead with the escalations: a misroute that crossed a capability boundary is a
+  // safety issue, not just a wrong answer, and the routing score alone hides it.
+  if (escalations.length) {
+    lines.push(`## 🚨 Privilege-escalating misroutes (${escalations.length})`);
+    lines.push(
+      "These queries reached a more-privileged tool than they should have — a wrong pick that also crosses a capability boundary. Fix these before any lateral misroute below.",
+    );
+    for (const r of escalations) {
+      const e = r.escalation!;
+      const detail =
+        e.from === "none"
+          ? `should route to **no tool**, but a **${e.to}**-tier tool \`${r.pick}\` answered it`
+          : `expected \`${r.intent.expect}\` (**${e.from}**), got \`${r.pick}\` (**${e.to}**)`;
+      lines.push("", `### 🚨 ${r.intent.id} — "${esc(r.intent.query)}"`);
+      lines.push(`- ${detail}`);
+    }
+    lines.push("");
+  }
 
   lines.push(`| intent | query | expected | picked | conf | |`);
   lines.push(`|---|---|---|---|---|---|`);

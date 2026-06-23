@@ -56,6 +56,25 @@ Both `get_holdings` and `get_pnl` controls stayed at 100% — the fix didn't can
 
 **Where it does NOT fix things — and that's the honest part.** Fuzz also flagged the write/management tools (`add_wallet_address`, `remove_account`, …) at 0/10. Adding trigger words did *nothing*: those tools require an `account_id` the conversational query never contains, so the host correctly defers (lists first, or asks) rather than calling a tool it can't fill. routeproof is strongest for **directly-callable** tools; for elicitation-heavy ones, "route to none/list-first" can be correct multi-turn behaviour, not a misroute. Measuring is what tells the two apart — eyeballing the descriptions never would.
 
+## Permission tiers — grade a misroute by severity, not just count it
+
+The routing score tells you a query went to the wrong tool. It doesn't tell you how *bad* that is. A read query that mis-routes to another read tool is a wrong answer; a read query that grabs `remove_account` is a query reaching for authority it was never granted — and a 98% score hiding one of those is more dangerous than 90% of harmless mix-ups. The score alone is a safety blind spot.
+
+Tag your tools by capability (`read` < `write` < `destructive`) and routeproof flags boundary-crossing misroutes as a separate, louder class:
+
+```yaml
+tiers:
+  setup_connector: write
+  remove_account: destructive
+  "portfolio_write_*": write   # globs work; unlisted tools default to read
+intents:
+  - id: balances
+    query: "show my balances"
+    expect: get_holdings        # if this ever routed to remove_account → 🚨 escalation
+```
+
+`none` sits below `read`, so an `expect: none` query that grabs *any* tool escalates — exactly the case where a host eagerly fires a write-capable tool at a query that carried no authority. Deferrals (routing to nothing) never escalate; the host declining to act is the safe direction. The report leads with the escalations, because those are the ones to fix first. _(Thanks to [@TheClawAbides](https://www.moltbook.com/u/TheClawAbides), who named the permission-tier gap: a perfect routing score can still be unsafe.)_
+
 ## Regression mode — pin routing, fail CI on drift
 
 Every description edit can silently re-route a query you weren't thinking about. So pin the current routing as a baseline, and fail CI when a later change drifts away from it:

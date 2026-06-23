@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateSuite } from "../src/intents.ts";
+import { validateSuite, validateTiers } from "../src/intents.ts";
 
 describe("validateSuite", () => {
   test("accepts a well-formed suite and fills ids", () => {
@@ -48,5 +48,37 @@ describe("validateSuite", () => {
   test("'none' is a valid expectation (asserts no tool should be called)", () => {
     const s = validateSuite({ intents: [{ query: "tell me a joke", expect: "none" }] });
     expect(s.intents[0]!.expect).toBe("none");
+  });
+
+  test("parses an optional tiers map", () => {
+    const s = validateSuite({
+      tiers: { remove_account: "destructive", get_holdings: "read" },
+      intents: [{ query: "a", expect: "get_holdings" }],
+    });
+    expect(s.tiers).toEqual({ remove_account: "destructive", get_holdings: "read" });
+  });
+
+  test("a suite with no tiers leaves it undefined", () => {
+    const s = validateSuite({ intents: [{ query: "a", expect: "t" }] });
+    expect(s.tiers).toBeUndefined();
+  });
+});
+
+describe("validateTiers", () => {
+  test("accepts valid levels and globs", () => {
+    expect(validateTiers({ a: "read", "b_*": "write" })).toEqual({ a: "read", "b_*": "write" });
+  });
+
+  test("returns undefined for missing/empty maps", () => {
+    expect(validateTiers(undefined)).toBeUndefined();
+    expect(validateTiers({})).toBeUndefined();
+  });
+
+  test("rejects an unknown tier", () => {
+    expect(() => validateTiers({ a: "admin" })).toThrow(/must be one of/);
+  });
+
+  test("rejects a non-object", () => {
+    expect(() => validateTiers(["read"])).toThrow(/must be a map/);
   });
 });

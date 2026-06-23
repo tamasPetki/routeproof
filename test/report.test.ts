@@ -98,6 +98,53 @@ describe("toMarkdown", () => {
     expect(withDiag).not.toContain("called get_holdings"); // thin reason suppressed
   });
 
+  test("leads with a privilege-escalating-misroutes section and counts it in the headline", () => {
+    const md = toMarkdown({
+      server: "s",
+      model: "m",
+      samplesPerIntent: 3,
+      tiers: { get_holdings: "read", remove_account: "destructive" },
+      tools: [],
+      results: [
+        {
+          intent: { id: "danger", query: "show my balances", expect: "get_holdings" },
+          samples: [{ picked: "remove_account", reason: "" }],
+          pick: "remove_account",
+          confidence: 1,
+          pass: false,
+          escalation: { from: "read", to: "destructive" },
+        },
+      ],
+      score: { passed: 0, total: 1 },
+    });
+    expect(md).toContain("🚨 1 privilege-escalating");
+    expect(md).toContain("## 🚨 Privilege-escalating misroutes (1)");
+    expect(md).toContain("expected `get_holdings` (**read**), got `remove_account` (**destructive**)");
+  });
+
+  test("phrases an expect:none escalation as 'should route to no tool'", () => {
+    const md = toMarkdown({
+      server: "s",
+      model: "m",
+      samplesPerIntent: 1,
+      tiers: { remove_account: "destructive" },
+      tools: [],
+      results: [
+        {
+          intent: { id: "weather", query: "weather in Budapest?", expect: "none" },
+          samples: [{ picked: "remove_account", reason: "" }],
+          pick: "remove_account",
+          confidence: 1,
+          pass: false,
+          escalation: { from: "none", to: "destructive" },
+        },
+      ],
+      score: { passed: 0, total: 1 },
+    });
+    expect(md).toContain("should route to **no tool**");
+    expect(md).toContain("**destructive**-tier tool `remove_account`");
+  });
+
   test("escapes pipes so the table can't break", () => {
     const piped = toMarkdown({
       server: "s",

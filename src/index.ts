@@ -12,6 +12,7 @@ import { evalIntent } from "./router.ts";
 import { diagnoseMisroute } from "./diagnose.ts";
 import { generateIntentsForTool } from "./fuzz.ts";
 import { mapWithConcurrency } from "./concurrency.ts";
+import { annotateEscalations } from "./tiers.ts";
 import { summarize, toMarkdown } from "./report.ts";
 import {
   toBaseline,
@@ -20,7 +21,7 @@ import {
   regressionMarkdown,
 } from "./baseline.ts";
 import { readFileSync, writeFileSync } from "node:fs";
-import type { EvalReport, Intent, IntentResult } from "./types.ts";
+import type { EvalReport, Intent, IntentResult, Tier } from "./types.ts";
 
 interface Args {
   suite: string;
@@ -117,10 +118,12 @@ async function main(): Promise<void> {
   // Resolve the server: from --server, or (non-fuzz only) the intent file.
   let server = args.server;
   let suiteIntents: Intent[] = [];
+  let suiteTiers: Record<string, Tier> | undefined;
   if (!args.fuzz) {
     const suite = await loadIntentSuite(args.suite);
     server = server ?? suite.server;
     suiteIntents = suite.intents;
+    suiteTiers = suite.tiers;
   }
   if (!server) {
     throw new Error("no server command — pass --server or set 'server' in the intent file");
@@ -157,6 +160,11 @@ async function main(): Promise<void> {
     if (r.pass && r.confidence < args.minConfidence) r.flaky = true;
   }
 
+  // Tag misroutes that crossed a capability boundary (read query → write/destructive
+  // tool, or a should-route-nowhere query that grabbed any tool). A no-op when the
+  // suite declares no `tiers`. Fuzz mode has no suite, so it carries no tiers.
+  annotateEscalations(results, suiteTiers);
+
   // Diagnose hard misroutes AND flaky passes — both have a real description
   // problem worth explaining. Clean, confident passes cost nothing. Skip it in
   // regression mode: pinning a baseline just snapshots, and the CI drift-check
@@ -175,6 +183,7 @@ async function main(): Promise<void> {
     model: provider.model,
     samplesPerIntent: args.samples,
     minConfidence: args.minConfidence,
+    tiers: suiteTiers,
     tools,
     results,
     score: summarize(results),
