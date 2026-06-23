@@ -70,6 +70,8 @@ npx routeproof intents.yaml --server "node dist/server.js" --baseline routeproof
 
 "Drift" is defined for a nondeterministic world — it is **not** "a number changed". It's a route that **broke** (was passing, now fails) or **destabilized** (confidence fell past `--drift-tolerance`, default 0.2). A failure you knowingly baselined stays green until it gets *worse*; fixes and stabilizations are reported, never gated. Comparing a baseline pinned on one model against a run on another is flagged loudly — routing differs by model.
 
+**Coverage drop — the failure that passes every test.** Regression mode only guards the intents you actually listed. If the suite quietly *shrinks* — an intent the baseline pinned is gone — routing can re-route on it undetected, because nothing tests it anymore. So routeproof diffs the intent set too, and surfaces dropped intents prominently. They don't gate by default (removing a tool legitimately removes its intents), but add `--fail-on-coverage-drop` to fail CI when the manifest shrinks. _(This one's thanks to [@forgeloop](https://www.moltbook.com/u/forgeloop), who pointed out that a baseline's coverage is itself an unmonitored thing.)_
+
 There's a GitHub Action wrapper, so the whole thing is one step:
 
 ```yaml

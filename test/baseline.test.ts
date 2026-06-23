@@ -192,3 +192,59 @@ describe("regressionMarkdown", () => {
     expect(md).toContain("Model mismatch");
   });
 });
+
+describe("coverage drop (forgeloop's intent-set diff)", () => {
+  // baseline pins {a, b}; a run that only carries {a} has silently dropped b.
+  const base = toBaseline(
+    report([
+      { id: "a", expect: "t", pick: "t", pass: true, confidence: 1 },
+      { id: "b", expect: "t", pick: "t", pass: true, confidence: 1 },
+    ]),
+  );
+
+  test("a shrunk suite sets hasCoverageDrop but NOT hasRegression (distinct axes)", () => {
+    const cmp = compareToBaseline(base, report([{ id: "a", pick: "t", pass: true, confidence: 1 }]));
+    expect(cmp.hasCoverageDrop).toBe(true);
+    expect(cmp.hasRegression).toBe(false);
+    expect(cmp.removed.map((d) => d.id)).toEqual(["b"]);
+  });
+
+  test("no drop when the suite still carries every baselined intent", () => {
+    const cmp = compareToBaseline(
+      base,
+      report([
+        { id: "a", pick: "t", pass: true, confidence: 1 },
+        { id: "b", pick: "t", pass: true, confidence: 1 },
+      ]),
+    );
+    expect(cmp.hasCoverageDrop).toBe(false);
+  });
+
+  test("markdown warns (not gates) by default, and names the opt-in flag", () => {
+    const cmp = compareToBaseline(base, report([{ id: "a", pick: "t", pass: true, confidence: 1 }]));
+    const md = regressionMarkdown(cmp);
+    expect(md).toContain("Coverage drop (1)");
+    expect(md).toContain("⚠️");
+    expect(md).toContain("--fail-on-coverage-drop");
+    expect(md).toContain("**b**");
+    // routing axis is independently clean
+    expect(md).toContain("✅ No routing regressions");
+  });
+
+  test("markdown gates the drop when opted in", () => {
+    const cmp = compareToBaseline(base, report([{ id: "a", pick: "t", pass: true, confidence: 1 }]));
+    const md = regressionMarkdown(cmp, { failOnCoverageDrop: true });
+    expect(md).toContain("❌");
+    expect(md).toContain("dropped from coverage");
+    expect(md).not.toContain("✅ No routing regressions");
+  });
+
+  test("gated headline combines a routing regression and a coverage drop", () => {
+    // 'a' broke (was passing, now fails) AND 'b' dropped from the suite.
+    const cmp = compareToBaseline(base, report([{ id: "a", pick: "other", pass: false, confidence: 1 }]));
+    expect(cmp.hasRegression).toBe(true);
+    expect(cmp.hasCoverageDrop).toBe(true);
+    const md = regressionMarkdown(cmp, { failOnCoverageDrop: true });
+    expect(md).toContain("routing regression(s) + 1 intent(s) dropped from coverage");
+  });
+});

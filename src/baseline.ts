@@ -61,6 +61,14 @@ export interface RegressionReport {
   compared: number;
   /** True iff there is at least one regression. The CI exit condition. */
   hasRegression: boolean;
+  /**
+   * True iff the current suite dropped intents the baseline carried (`removed`).
+   * A *coverage* regression, distinct from a routing one: routing can now
+   * silently re-route on those intents undetected, because they aren't tested
+   * anymore. Gated only when the caller opts in (`--fail-on-coverage-drop`),
+   * since deleting a tool legitimately removes its intents.
+   */
+  hasCoverageDrop: boolean;
   /** Set when the baseline was pinned on a different model than this run. */
   modelMismatch?: { baseline: string; current: string };
 }
@@ -184,6 +192,7 @@ export function compareToBaseline(
     respecified,
     compared,
     hasRegression: regressions.length > 0,
+    hasCoverageDrop: removed.length > 0,
   };
   if (baseline.model !== report.model) {
     report_.modelMismatch = { baseline: baseline.model, current: report.model };
@@ -196,7 +205,10 @@ function pct(x: number): string {
 }
 
 /** Render the regression comparison as CI-friendly markdown. */
-export function regressionMarkdown(cmp: RegressionReport): string {
+export function regressionMarkdown(
+  cmp: RegressionReport,
+  opts: { failOnCoverageDrop?: boolean } = {},
+): string {
   const lines: string[] = [];
   lines.push(`# routeproof — regression check`, "");
 
@@ -207,10 +219,16 @@ export function regressionMarkdown(cmp: RegressionReport): string {
     );
   }
 
-  if (!cmp.hasRegression) {
+  // Coverage drop gates only when the caller opted in; otherwise it's a warning.
+  const coverageGated = !!opts.failOnCoverageDrop && cmp.hasCoverageDrop;
+
+  if (!cmp.hasRegression && !coverageGated) {
     lines.push(`**✅ No routing regressions vs baseline.**`);
   } else {
-    lines.push(`**❌ ${cmp.regressions.length} routing regression(s) vs baseline.**`);
+    const parts: string[] = [];
+    if (cmp.regressions.length) parts.push(`${cmp.regressions.length} routing regression(s)`);
+    if (coverageGated) parts.push(`${cmp.removed.length} intent(s) dropped from coverage`);
+    lines.push(`**❌ ${parts.join(" + ")} vs baseline.**`);
   }
   lines.push("");
 
@@ -250,11 +268,26 @@ export function regressionMarkdown(cmp: RegressionReport): string {
     lines.push("");
   }
 
+  // Coverage drop — promoted from a buried footnote to a real section. A
+  // shrinking intent set is "the failure that passes every test": routing can
+  // silently re-route on a dropped intent because nothing tests it anymore.
+  if (cmp.removed.length) {
+    const icon = coverageGated ? "❌" : "⚠️";
+    lines.push(`## ${icon} Coverage drop (${cmp.removed.length})`, "");
+    lines.push(
+      coverageGated
+        ? `These intents were in the baseline but are gone from the current suite. A shrinking intent set silently narrows what regression mode can catch — the failure that passes every other test — so it is gated here.`
+        : `These intents were in the baseline but are gone from the current suite, so routing can now silently regress on them with nothing to catch it. Pass \`--fail-on-coverage-drop\` to gate this (skip it when you removed a tool on purpose).`,
+      "",
+    );
+    for (const d of cmp.removed) {
+      lines.push(`- ${icon} **${d.id}** — pinned (expected \`${d.before?.expect ?? "?"}\`), no longer in the suite.`);
+    }
+    lines.push("");
+  }
+
   if (cmp.added.length) {
     lines.push(`_${cmp.added.length} new intent(s) not in baseline: ${cmp.added.map((d) => d.id).join(", ")} (run with \`--save-baseline\` to pin them)._`, "");
-  }
-  if (cmp.removed.length) {
-    lines.push(`_${cmp.removed.length} baselined intent(s) no longer in the suite: ${cmp.removed.map((d) => d.id).join(", ")}._`, "");
   }
   if (cmp.respecified.length) {
     lines.push(`_${cmp.respecified.length} intent(s) changed their expected tool since the baseline: ${cmp.respecified.map((d) => d.id).join(", ")} — re-pin to compare against the new expectation._`, "");
