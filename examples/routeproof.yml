@@ -28,7 +28,7 @@ jobs:
       # server command can't start.
       - run: npm ci && npm run build
 
-      - uses: tamasPetki/routeproof@v0.1
+      - uses: tamasPetki/routeproof@v0.2.0
         with:
           intents: routeproof.intents.yaml
           server: "node dist/server.js"
@@ -36,3 +36,5 @@ jobs:
           # samples: 3
           # model: claude-haiku-4-5-20251001
           # drift-tolerance: 0.2
+          # fail-on-coverage-drop: true
+          # fail-on-escalation: true

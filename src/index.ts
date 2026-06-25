@@ -5,7 +5,7 @@
 //
 // Exit code: 0 if every intent routed as expected, 1 on any misroute, 2 on error.
 
-import { loadIntentSuite } from "./intents.ts";
+import { loadIntentSuite, unknownExpectations } from "./intents.ts";
 import { loadToolsFromServer } from "./mcp-client.ts";
 import { AnthropicProvider } from "./providers/anthropic.ts";
 import { evalIntent } from "./router.ts";
@@ -78,7 +78,13 @@ function parseArgs(argv: string[]): Args {
     else if (v === "-h" || v === "--help") {
       printUsage();
       process.exit(0);
+    } else if (v.startsWith("-")) {
+      // Never silently swallow an unrecognized flag. A user copy-pasting a flag
+      // from docs for a newer version must hear about it, not get a no-op run
+      // that looks like it worked (e.g. a security gate that never gated).
+      throw new Error(`unknown option '${v}'. Run --help for the supported flags.`);
     } else if (!a.suite) a.suite = v;
+    else throw new Error(`unexpected extra argument '${v}'. Pass a single intents file (see --help).`);
   }
   // Fuzz invents its own intents from the tool descriptions, so it needs no
   // suite file — but it does need a server to read those descriptions from.
@@ -109,9 +115,36 @@ function parseArgs(argv: string[]): Args {
 
 function printUsage(): void {
   console.error(
-    'usage: routeproof <intents.json|.yaml> --server "<cmd>" [--samples N] [--concurrency N] [--model M] [--min-confidence 0..1] [--json] [--no-diagnose]\n' +
-      "       regression mode: [--save-baseline <file>] to pin, [--baseline <file>] to fail on drift [--drift-tolerance 0..1] [--fail-on-coverage-drop] [--fail-on-escalation]\n" +
-      "       fuzz mode: --fuzz [--fuzz-per-tool N] — invent realistic queries from your tool descriptions and surface the mis-routers",
+    "routeproof — test whether an AI host routes user intents to the right MCP tools.\n" +
+      "It runs each query through a fresh model that sees ONLY your tools' names,\n" +
+      "descriptions, and schemas (the host's-eye view), N times, and reports what\n" +
+      "mis-routed and why. Needs ANTHROPIC_API_KEY (BYO; defaults to a cheap model).\n" +
+      "\n" +
+      'usage: routeproof <intents.json|.yaml> --server "<cmd>" [options]\n' +
+      "\n" +
+      "an intents file looks like:\n" +
+      "  intents:\n" +
+      '    - id: which-wallets\n' +
+      '      query: "which wallets am I tracking?"\n' +
+      "      expect: list_accounts          # or `none` to assert no tool should fire\n" +
+      "  # optional, for severity grading:\n" +
+      "  tiers: { remove_account: destructive }   # read < write < destructive\n" +
+      "\n" +
+      'example (against a real server):\n' +
+      '  routeproof examples/headless-tracker.intents.yaml --server "npx headless-tracker"\n' +
+      "  (more starter suites ship in the package’s examples/ directory)\n" +
+      "\n" +
+      "options:\n" +
+      "  --server \"<cmd>\"        command that launches your MCP server over stdio\n" +
+      "  --samples N             samples per intent (default 3; routing is nondeterministic)\n" +
+      "  --concurrency N         intents evaluated in parallel (default 4)\n" +
+      "  --model M               Anthropic model id (default: a cheap Haiku-class model)\n" +
+      "  --min-confidence 0..1   below this, a passing route is flagged flaky (default 0.8)\n" +
+      "  --json                  emit the full report as JSON instead of markdown\n" +
+      "  --no-diagnose           skip the per-misroute why + suggested-fix pass\n" +
+      "  regression mode: --save-baseline <file> to pin; --baseline <file> to fail CI on drift\n" +
+      "                   [--drift-tolerance 0..1] [--fail-on-coverage-drop] [--fail-on-escalation]\n" +
+      "  fuzz mode:       --fuzz [--fuzz-per-tool N] — invent queries from your descriptions",
   );
 }
 
@@ -134,6 +167,20 @@ async function main(): Promise<void> {
 
   const tools = await loadToolsFromServer(server);
   if (tools.length === 0) throw new Error(`server '${server}' advertised no tools`);
+
+  // Warn (don't fail) when a hand-written intent expects a tool the server
+  // doesn't expose — it can never pass and would otherwise masquerade as a
+  // misroute. Fuzz generates its intents from the tools, so they always match.
+  if (!args.fuzz) {
+    const unknown = unknownExpectations(suiteIntents, tools.map((t) => t.name));
+    if (unknown.length) {
+      console.error(
+        `routeproof: warning — ${unknown.length} intent(s) expect a tool this server doesn't advertise: ` +
+          unknown.map((u) => `${u.id} → '${u.expect}'`).join(", ") +
+          `. They can never pass; check for a typo against the server's tool names.`,
+      );
+    }
+  }
 
   const provider = new AnthropicProvider(args.model);
 

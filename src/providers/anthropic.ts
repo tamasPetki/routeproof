@@ -64,15 +64,26 @@ export class AnthropicProvider implements Provider {
     body: Record<string, unknown>,
     attempt = 0,
   ): Promise<Array<Record<string, unknown>>> {
-    const res = await fetch(API, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.#apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(API, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": this.#apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      // A thrown fetch (DNS, TLS, proxy, offline) surfaces as a bare "fetch
+      // failed" — useless to a new user. Name the endpoint and the usual causes,
+      // and keep it distinct from an MCP-server failure (which reads differently).
+      const why = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `could not reach the Anthropic API at ${API} (${why}). Check ANTHROPIC_API_KEY, your network, and any HTTPS_PROXY / NO_PROXY settings.`,
+      );
+    }
 
     // Retry transient overload / rate limits with exponential backoff so a big
     // suite doesn't die on the first 429.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { validateSuite, validateTiers } from "../src/intents.ts";
+import { validateSuite, validateTiers, unknownExpectations } from "../src/intents.ts";
+import type { Intent } from "../src/types.ts";
 
 describe("validateSuite", () => {
   test("accepts a well-formed suite and fills ids", () => {
@@ -80,5 +81,26 @@ describe("validateTiers", () => {
 
   test("rejects a non-object", () => {
     expect(() => validateTiers(["read"])).toThrow(/must be a map/);
+  });
+});
+
+describe("unknownExpectations", () => {
+  const intents: Intent[] = [
+    { id: "ok", query: "a", expect: "get_holdings" },
+    { id: "typo", query: "b", expect: "get_holdigns" }, // misspelled
+    { id: "nowhere", query: "c", expect: "none" }, // sentinel, always allowed
+  ];
+  const tools = ["get_holdings", "list_accounts"];
+
+  test("flags an intent expecting a tool the server doesn't expose", () => {
+    expect(unknownExpectations(intents, tools)).toEqual([{ id: "typo", expect: "get_holdigns" }]);
+  });
+
+  test("never flags the `none` sentinel", () => {
+    expect(unknownExpectations([{ id: "x", query: "q", expect: "none" }], [])).toEqual([]);
+  });
+
+  test("empty when every expectation matches a real tool", () => {
+    expect(unknownExpectations([{ id: "x", query: "q", expect: "list_accounts" }], tools)).toEqual([]);
   });
 });

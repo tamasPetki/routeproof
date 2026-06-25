@@ -1,10 +1,10 @@
 # Dogfood suite: real user intents for HeadlessTracker (the MCP server I maintain).
-# Run:  routeproof examples/headless-tracker.intents.yaml --server "npx headless-tracker mcp"
+# Run:  routeproof examples/headless-tracker.intents.yaml --server "npx headless-tracker"
 #
 # Several of these are the exact phrasings that mis-routed on my own server
 # before I fixed the descriptions — kept here as regression anchors.
 
-server: npx headless-tracker mcp
+server: npx headless-tracker
 
 # This suite is read-only except for refresh_data, which mutates server state.
 # Tiers let routeproof grade severity: the `off-topic` intent below should route

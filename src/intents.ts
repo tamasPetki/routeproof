@@ -64,6 +64,21 @@ export function validateSuite(data: unknown, source = "<intents>"): IntentSuite 
   };
 }
 
+/**
+ * Intents whose `expect` names a tool the server doesn't actually expose
+ * (the `none` sentinel is always allowed). A typo here can never pass and looks
+ * exactly like a misroute — so surface it as a config warning, not a result.
+ */
+export function unknownExpectations(
+  intents: Intent[],
+  toolNames: readonly string[],
+): Array<{ id: string; expect: string }> {
+  const known = new Set(toolNames);
+  return intents
+    .filter((it) => it.expect !== "none" && !known.has(it.expect))
+    .map((it) => ({ id: it.id, expect: it.expect }));
+}
+
 /** Validate the optional `tiers` map: tool name (or `*` glob) → read|write|destructive. */
 export function validateTiers(raw: unknown, source = "<intents>"): Record<string, Tier> | undefined {
   if (raw === undefined || raw === null) return undefined;

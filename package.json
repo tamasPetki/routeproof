@@ -1,6 +1,6 @@
 {
   "name": "routeproof",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Test how an AI host routes real user intents to your MCP server's tools — catch silent mis-routing before your users do.",
   "type": "module",
   "bin": {

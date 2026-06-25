@@ -35,6 +35,10 @@ inputs:
     description: "Fail when the suite drops an intent the baseline pinned (a shrinking manifest). 'true' to gate."
     required: false
     default: "false"
+  fail-on-escalation:
+    description: "Fail when any query routes to a higher-privilege tool than expected (needs `tiers:` in the suite). 'true' to gate."
+    required: false
+    default: "false"
   version:
     description: "npm version or dist-tag of routeproof to run."
     required: false
@@ -63,6 +67,7 @@ runs:
         RP_MINCONF: ${{ inputs.min-confidence }}
         RP_DRIFT: ${{ inputs.drift-tolerance }}
         RP_COVERAGE: ${{ inputs.fail-on-coverage-drop }}
+        RP_ESCALATION: ${{ inputs.fail-on-escalation }}
         RP_VERSION: ${{ inputs.version }}
       run: |
         if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
@@ -73,4 +78,5 @@ runs:
                --samples "$RP_SAMPLES" --min-confidence "$RP_MINCONF" --drift-tolerance "$RP_DRIFT" )
         if [ -n "$RP_MODEL" ]; then args+=( --model "$RP_MODEL" ); fi
         if [ "$RP_COVERAGE" = "true" ]; then args+=( --fail-on-coverage-drop ); fi
+        if [ "$RP_ESCALATION" = "true" ]; then args+=( --fail-on-escalation ); fi
         npx -y "routeproof@$RP_VERSION" "${args[@]}"
