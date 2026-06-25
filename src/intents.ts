@@ -3,8 +3,10 @@
 // tool each one SHOULD route to." routeproof checks reality against it.
 
 import { readFileSync } from "node:fs";
-import type { IntentSuite, Intent, Tier } from "./types.ts";
+import type { IntentSuite, Intent, Tier, RouteMode } from "./types.ts";
 import { TIERS } from "./tiers.ts";
+
+export const ROUTE_MODES: readonly RouteMode[] = ["host", "select"];
 
 export async function loadIntentSuite(path: string): Promise<IntentSuite> {
   const raw = readFileSync(path, "utf8");
@@ -59,9 +61,30 @@ export function validateSuite(data: unknown, source = "<intents>"): IntentSuite 
   });
   return {
     server: typeof obj.server === "string" ? obj.server : undefined,
+    mode: validateMode(obj.mode, source),
     tiers: validateTiers(obj.tiers, source),
     intents,
   };
+}
+
+/** Validate the optional `mode` field: host | select. */
+export function validateMode(raw: unknown, source = "<intents>"): RouteMode | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "string" || !ROUTE_MODES.includes(raw as RouteMode)) {
+    throw new Error(`${source}: 'mode' must be one of ${ROUTE_MODES.join("|")} (got ${JSON.stringify(raw)})`);
+  }
+  return raw as RouteMode;
+}
+
+/**
+ * Intents that assert `expect: none` under a forced-pick mode — an impossible
+ * expectation, since `select` mode never lets the model decline. Returns the
+ * offending ids so the CLI can refuse the run with a clear message instead of
+ * reporting every one as a guaranteed misroute.
+ */
+export function noneExpectationsUnderSelect(intents: Intent[], mode: RouteMode): string[] {
+  if (mode !== "select") return [];
+  return intents.filter((it) => it.expect === "none").map((it) => it.id);
 }
 
 /**

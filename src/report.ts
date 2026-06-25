@@ -16,8 +16,11 @@ export function toMarkdown(report: EvalReport): string {
   const lines: string[] = [];
 
   lines.push(`# routeproof report`, "");
+  // Name the mode only when it's the non-default `select` (forced pick), so
+  // existing host-mode reports and pinned baselines stay byte-identical.
+  const modeNote = report.mode === "select" ? "  ·  **Mode:** select (forced pick)" : "";
   lines.push(
-    `**Server:** \`${report.server}\`  ·  **Model:** ${report.model}  ·  **Samples/intent:** ${report.samplesPerIntent}`,
+    `**Server:** \`${report.server}\`  ·  **Model:** ${report.model}  ·  **Samples/intent:** ${report.samplesPerIntent}${modeNote}`,
     "",
   );
   const escalations = report.results.filter((r) => r.escalation);

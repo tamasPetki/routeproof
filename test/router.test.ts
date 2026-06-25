@@ -73,4 +73,21 @@ describe("evalIntent", () => {
     expect(r.pass).toBe(true);
     expect(r.pick).toBeNull();
   });
+
+  test("threads route options (forcePick) through to the provider", async () => {
+    const seen: Array<{ forcePick?: boolean }> = [];
+    const p: Provider = {
+      model: "fake",
+      async route(_t, _q, opts) {
+        seen.push(opts ?? {});
+        return { picked: "get_holdings", reason: "" };
+      },
+      async complete() {
+        return "";
+      },
+    };
+    await evalIntent(p, TOOLS, { id: "i", query: "q", expect: "get_holdings" }, 3, { forcePick: true });
+    expect(seen).toHaveLength(3);
+    expect(seen.every((o) => o.forcePick === true)).toBe(true);
+  });
 });

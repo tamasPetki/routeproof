@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { validateSuite, validateTiers, unknownExpectations } from "../src/intents.ts";
+import {
+  validateSuite,
+  validateTiers,
+  validateMode,
+  unknownExpectations,
+  noneExpectationsUnderSelect,
+} from "../src/intents.ts";
 import type { Intent } from "../src/types.ts";
 
 describe("validateSuite", () => {
@@ -62,6 +68,55 @@ describe("validateSuite", () => {
   test("a suite with no tiers leaves it undefined", () => {
     const s = validateSuite({ intents: [{ query: "a", expect: "t" }] });
     expect(s.tiers).toBeUndefined();
+  });
+
+  test("parses an optional mode", () => {
+    const s = validateSuite({ mode: "select", intents: [{ query: "a", expect: "t" }] });
+    expect(s.mode).toBe("select");
+  });
+
+  test("a suite with no mode leaves it undefined (host is the default at use)", () => {
+    const s = validateSuite({ intents: [{ query: "a", expect: "t" }] });
+    expect(s.mode).toBeUndefined();
+  });
+
+  test("rejects an unknown mode", () => {
+    expect(() => validateSuite({ mode: "classify", intents: [{ query: "a", expect: "t" }] })).toThrow(
+      /must be one of/,
+    );
+  });
+});
+
+describe("validateMode", () => {
+  test("accepts host and select", () => {
+    expect(validateMode("host")).toBe("host");
+    expect(validateMode("select")).toBe("select");
+  });
+
+  test("returns undefined for missing", () => {
+    expect(validateMode(undefined)).toBeUndefined();
+    expect(validateMode(null)).toBeUndefined();
+  });
+
+  test("rejects anything else", () => {
+    expect(() => validateMode("auto")).toThrow(/must be one of/);
+    expect(() => validateMode(2)).toThrow(/must be one of/);
+  });
+});
+
+describe("noneExpectationsUnderSelect", () => {
+  const intents: Intent[] = [
+    { id: "a", query: "x", expect: "web_researcher" },
+    { id: "b", query: "y", expect: "none" },
+    { id: "c", query: "z", expect: "none" },
+  ];
+
+  test("flags none-expectations in select mode (a forced pick can't decline)", () => {
+    expect(noneExpectationsUnderSelect(intents, "select")).toEqual(["b", "c"]);
+  });
+
+  test("never flags in host mode (none is valid there)", () => {
+    expect(noneExpectationsUnderSelect(intents, "host")).toEqual([]);
   });
 });
 

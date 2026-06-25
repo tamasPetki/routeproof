@@ -5,7 +5,7 @@
 //
 // Exit code: 0 if every intent routed as expected, 1 on any misroute, 2 on error.
 
-import { loadIntentSuite, unknownExpectations } from "./intents.ts";
+import { loadIntentSuite, unknownExpectations, noneExpectationsUnderSelect, ROUTE_MODES } from "./intents.ts";
 import { loadToolsFromServer } from "./mcp-client.ts";
 import { AnthropicProvider } from "./providers/anthropic.ts";
 import { evalIntent } from "./router.ts";
@@ -21,13 +21,14 @@ import {
   regressionMarkdown,
 } from "./baseline.ts";
 import { readFileSync, writeFileSync } from "node:fs";
-import type { EvalReport, Intent, IntentResult, Tier } from "./types.ts";
+import type { EvalReport, Intent, IntentResult, Tier, RouteMode } from "./types.ts";
 
 interface Args {
   suite: string;
   server?: string;
   samples: number;
   model?: string;
+  mode?: RouteMode;
   json: boolean;
   diagnose: boolean;
   minConfidence: number;
@@ -60,6 +61,13 @@ function parseArgs(argv: string[]): Args {
     if (v === "--server") a.server = argv[++i];
     else if (v === "--samples") a.samples = Number(argv[++i] ?? 3);
     else if (v === "--model") a.model = argv[++i];
+    else if (v === "--mode") {
+      const m = argv[++i];
+      if (m !== "host" && m !== "select") {
+        throw new Error(`--mode must be one of ${ROUTE_MODES.join("|")} (got ${JSON.stringify(m)})`);
+      }
+      a.mode = m;
+    } else if (v === "--select") a.mode = "select";
     else if (v === "--min-confidence") a.minConfidence = Number(argv[++i] ?? 0.8);
     else if (v === "--concurrency") a.concurrency = Number(argv[++i] ?? 4);
     else if (v === "--save-baseline") {
@@ -139,6 +147,10 @@ function printUsage(): void {
       "  --samples N             samples per intent (default 3; routing is nondeterministic)\n" +
       "  --concurrency N         intents evaluated in parallel (default 4)\n" +
       "  --model M               Anthropic model id (default: a cheap Haiku-class model)\n" +
+      "  --mode host|select      host (default): model may decline (→ none), like an MCP host.\n" +
+      "                          select: force a pick, for a forced classifier — e.g. an\n" +
+      "                          agent orchestrator's router (see examples/agents.intents.yaml).\n" +
+      "  --select                shorthand for --mode select\n" +
       "  --min-confidence 0..1   below this, a passing route is flagged flaky (default 0.8)\n" +
       "  --json                  emit the full report as JSON instead of markdown\n" +
       "  --no-diagnose           skip the per-misroute why + suggested-fix pass\n" +
@@ -155,12 +167,17 @@ async function main(): Promise<void> {
   let server = args.server;
   let suiteIntents: Intent[] = [];
   let suiteTiers: Record<string, Tier> | undefined;
+  let suiteMode: RouteMode | undefined;
   if (!args.fuzz) {
     const suite = await loadIntentSuite(args.suite);
     server = server ?? suite.server;
     suiteIntents = suite.intents;
     suiteTiers = suite.tiers;
+    suiteMode = suite.mode;
   }
+  // CLI --mode/--select overrides the suite; otherwise the suite's mode; else host.
+  const mode: RouteMode = args.mode ?? suiteMode ?? "host";
+  const forcePick = mode === "select";
   if (!server) {
     throw new Error("no server command — pass --server or set 'server' in the intent file");
   }
@@ -178,6 +195,15 @@ async function main(): Promise<void> {
         `routeproof: warning — ${unknown.length} intent(s) expect a tool this server doesn't advertise: ` +
           unknown.map((u) => `${u.id} → '${u.expect}'`).join(", ") +
           `. They can never pass; check for a typo against the server's tool names.`,
+      );
+    }
+    // In select mode the model is forced to pick, so `expect: none` is an
+    // impossible assertion — refuse the run rather than report guaranteed misroutes.
+    const badNone = noneExpectationsUnderSelect(suiteIntents, mode);
+    if (badNone.length) {
+      throw new Error(
+        `--mode select forces a tool pick, but ${badNone.length} intent(s) expect 'none': ${badNone.join(", ")}. ` +
+          `A forced classifier can't decline — use host mode for none-assertions, or give these a real expected tool.`,
       );
     }
   }
@@ -201,7 +227,7 @@ async function main(): Promise<void> {
   const results: IntentResult[] = await mapWithConcurrency(
     intents,
     args.concurrency,
-    (intent) => evalIntent(provider, tools, intent, args.samples),
+    (intent) => evalIntent(provider, tools, intent, args.samples, { forcePick }),
   );
 
   // A pass below the confidence threshold is flaky — it routes wrong a real
@@ -231,6 +257,7 @@ async function main(): Promise<void> {
   const report: EvalReport = {
     server,
     model: provider.model,
+    mode,
     samplesPerIntent: args.samples,
     minConfidence: args.minConfidence,
     tiers: suiteTiers,
@@ -268,6 +295,16 @@ async function main(): Promise<void> {
       console.log(args.json ? JSON.stringify({ report, comparison: cmp }, null, 2) : regressionMarkdown(cmp, { failOnCoverageDrop: args.failOnCoverageDrop, failOnEscalation: args.failOnEscalation, results }));
       console.error(
         `routeproof: baseline was pinned on ${cmp.modelMismatch.baseline} but this run used ${cmp.modelMismatch.current}. Re-pin on the model you gate with (--save-baseline) — refusing to gate on a cross-model comparison.`,
+      );
+      process.exit(2);
+    }
+
+    // Same logic for routing mode: a select pin vs a host run (or vice versa)
+    // compares decline-allowed against forced-pick routing — refuse, don't gate.
+    if (cmp.modeMismatch) {
+      console.log(args.json ? JSON.stringify({ report, comparison: cmp }, null, 2) : regressionMarkdown(cmp, { failOnCoverageDrop: args.failOnCoverageDrop, failOnEscalation: args.failOnEscalation, results }));
+      console.error(
+        `routeproof: baseline was pinned in ${cmp.modeMismatch.baseline} mode but this run used ${cmp.modeMismatch.current}. Re-pin in the mode you gate with (--mode ${cmp.modeMismatch.baseline} --save-baseline) — refusing to gate on a cross-mode comparison.`,
       );
       process.exit(2);
     }

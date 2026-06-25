@@ -1,0 +1,104 @@
+{
+  "_comment": "A sample multi-agent orchestrator registry. Each entry is an agent your orchestrator can route a task to. 'description' is the EXACT string the selector matches on — edit these to your real registry and routeproof tells you when an edit silently breaks routing. Every agent takes one arg, `task` (the user's request, which the orchestrator always has) — that models the common pattern where the selector routes the whole task and the agent self-gathers specifics. NOTE: if your real agents declare *required* args the routing query can't supply (an id, a file path), the selector will correctly DEFER to none rather than call a tool it can't fill — that's routeproof's elicitation limitation, not a routing bug. Feed this file to the adapter: node registry-adapter.mjs agents.registry.json",
+  "tools": [
+    {
+      "name": "web_researcher",
+      "description": "Search the live web and read pages to answer questions that need current or external information the model doesn't already know.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "code_writer",
+      "description": "Write new code, modify existing code, or implement a feature in an existing codebase from a plain-language description.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "code_reviewer",
+      "description": "Review a diff or pull request for bugs, security issues, and style before it is merged. Does not write the change.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "doc_summarizer",
+      "description": "Summarize a document, article, blog post, or transcript into its key points.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "meeting_recap",
+      "description": "Summarize a meeting, call, or standup and extract the decisions made and the action items.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "data_analyst",
+      "description": "Run queries and compute statistics over a dataset or spreadsheet and return the numbers.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "email_drafter",
+      "description": "Draft and format an outbound email or reply in the user's voice.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "calendar_reader",
+      "description": "Look up and list the user's existing calendar events and upcoming meetings. Read-only — does not create or change anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "scheduler",
+      "description": "Schedule, create, move, or cancel calendar events and meetings with other people, and set reminders on the user's calendar.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "translator",
+      "description": "Translate a piece of text from one language into another.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "image_describer",
+      "description": "Describe the visual contents of an image or screenshot.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "description": "the user's request in their own words" } },
+        "required": ["task"]
+      }
+    }
+  ]
+}

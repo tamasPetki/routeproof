@@ -2,7 +2,7 @@
 // reads back which one it called. BYO key via ANTHROPIC_API_KEY.
 
 import type { ToolSpec, RouteSample } from "../types.ts";
-import type { Provider } from "./types.ts";
+import type { Provider, RouteOptions } from "./types.ts";
 
 const API = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001"; // cheap by default; routing is a small ask
@@ -19,7 +19,7 @@ export class AnthropicProvider implements Provider {
     }
   }
 
-  async route(tools: ToolSpec[], query: string): Promise<RouteSample> {
+  async route(tools: ToolSpec[], query: string, opts: RouteOptions = {}): Promise<RouteSample> {
     // The host's-eye view — the model sees ONLY name + description + schema.
     const anthropicTools = tools.map((t) => ({
       name: t.name,
@@ -27,10 +27,15 @@ export class AnthropicProvider implements Provider {
       input_schema: (t.inputSchema as object) ?? { type: "object", properties: {} },
     }));
 
+    // host mode (default): tool_choice auto — the model may decline (→ none),
+    // modelling a host deciding *whether* to fire a tool. select mode: tool_choice
+    // any forces a pick, modelling a forced classifier (an orchestrator's router)
+    // that must choose one of N — so `picked` is never null in this mode.
     const blocks = await this.#post({
       model: this.model,
       max_tokens: 1024,
       tools: anthropicTools,
+      tool_choice: opts.forcePick ? { type: "any" } : { type: "auto" },
       messages: [{ role: "user", content: query }],
     });
 

@@ -6,13 +6,14 @@ import {
   regressionMarkdown,
   type Baseline,
 } from "../src/baseline.ts";
-import type { EvalReport, IntentResult } from "../src/types.ts";
+import type { EvalReport, IntentResult, RouteMode } from "../src/types.ts";
 
 // Build a minimal EvalReport from compact rows — only the fields the baseline
 // logic reads. Routing samples/diagnosis are irrelevant to regression.
 function report(
   rows: Array<{ id: string; expect?: string; pick: string | null; pass: boolean; confidence: number }>,
   model = "claude-haiku-4-5-20251001",
+  mode?: RouteMode,
 ): EvalReport {
   const results: IntentResult[] = rows.map((r) => ({
     intent: { id: r.id, query: r.id, expect: r.expect ?? "t" },
@@ -24,6 +25,7 @@ function report(
   return {
     server: "npx demo",
     model,
+    mode,
     samplesPerIntent: 5,
     minConfidence: 0.8,
     tools: [],
@@ -51,6 +53,16 @@ describe("toBaseline / parseBaseline", () => {
 
   test("rejects a malformed intent entry", () => {
     expect(() => parseBaseline({ version: 1, intents: { x: { pass: "yes" } } })).toThrow(/malformed/);
+  });
+
+  test("records the routing mode (defaults to host, carries select)", () => {
+    expect(toBaseline(report([{ id: "x", pick: "t", pass: true, confidence: 1 }])).mode).toBe("host");
+    expect(toBaseline(report([{ id: "x", pick: "t", pass: true, confidence: 1 }], "m", "select")).mode).toBe("select");
+  });
+
+  test("a legacy baseline with no mode field parses as host (back-compat)", () => {
+    expect(parseBaseline({ version: 1, intents: {} }).mode).toBe("host");
+    expect(parseBaseline({ version: 1, mode: "select", intents: {} }).mode).toBe("select");
   });
 });
 
@@ -138,6 +150,17 @@ describe("compareToBaseline", () => {
     expect(cmp.modelMismatch).toEqual({ baseline: "claude-haiku-4-5-20251001", current: "claude-sonnet-4-6" });
   });
 
+  test("detects a mode mismatch (host baseline vs select run)", () => {
+    // `base` was pinned with no mode → host. Run it in select mode.
+    const cmp = compareToBaseline(base, report([{ id: "solid", pick: "a", pass: true, confidence: 1 }], "claude-haiku-4-5-20251001", "select"));
+    expect(cmp.modeMismatch).toEqual({ baseline: "host", current: "select" });
+  });
+
+  test("no mode mismatch when both are host (undefined run mode defaults to host)", () => {
+    const cmp = compareToBaseline(base, report([{ id: "solid", pick: "a", pass: true, confidence: 1 }]));
+    expect(cmp.modeMismatch).toBeUndefined();
+  });
+
   test("a confidence drop of EXACTLY the tolerance is noise, not drift (5-sample 1.0->0.8 wobble)", () => {
     const b = toBaseline(report([{ id: "x", pick: "a", pass: true, confidence: 1 }]));
     const cmp = compareToBaseline(b, report([{ id: "x", pick: "a", pass: true, confidence: 0.8 }]), 0.2);
@@ -190,6 +213,13 @@ describe("regressionMarkdown", () => {
       compareToBaseline(base, report([{ id: "solid", expect: "a", pick: "a", pass: true, confidence: 1 }], "claude-sonnet-4-6")),
     );
     expect(md).toContain("Model mismatch");
+  });
+
+  test("warns loudly on a mode mismatch", () => {
+    const md = regressionMarkdown(
+      compareToBaseline(base, report([{ id: "solid", expect: "a", pick: "a", pass: true, confidence: 1 }], "claude-haiku-4-5-20251001", "select")),
+    );
+    expect(md).toContain("Mode mismatch");
   });
 });
 

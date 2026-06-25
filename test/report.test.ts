@@ -173,6 +173,20 @@ describe("toMarkdown", () => {
     expect(md).toContain("**destructive**-tier tool `remove_account`");
   });
 
+  test("names the mode only when it's select (host stays byte-identical)", () => {
+    expect(md).not.toContain("Mode:"); // default host — header unchanged
+    const sel = toMarkdown({
+      server: "node adapter.mjs registry.json",
+      model: "m",
+      mode: "select",
+      samplesPerIntent: 1,
+      tools: [],
+      results,
+      score: summarize(results),
+    } satisfies EvalReport);
+    expect(sel).toContain("**Mode:** select (forced pick)");
+  });
+
   test("escapes pipes so the table can't break", () => {
     const piped = toMarkdown({
       server: "s",

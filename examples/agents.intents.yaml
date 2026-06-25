@@ -1,0 +1,59 @@
+# Selector regression test for a multi-agent orchestrator — NOT an MCP server.
+#
+# routeproof tests any place a model picks one option by reading short
+# descriptions. Wrap your agent registry as a thin stdio MCP server with the
+# zero-dep adapter (each agent becomes a "tool"), then point routeproof at it:
+#
+#   export ANTHROPIC_API_KEY=...
+#   npx routeproof examples/agents.intents.yaml \
+#     --server "node examples/registry-adapter.mjs examples/agents.registry.json"
+#
+# `mode: select` is the key: an orchestrator's router is a FORCED classifier —
+# it must route the task to one of its agents, it can't decline. (Host mode, the
+# default, lets the model answer "no tool fits" → none, which is right for an MCP
+# server but wrong for a selector.) routeproof stops at the selection step — it
+# never runs the chosen agent — so this is safe against your real, live registry.
+
+server: "node examples/registry-adapter.mjs examples/agents.registry.json"
+mode: select
+
+# Optional: label which agents have side effects. A task that should route to a
+# read-only agent but grabs a write/destructive one is flagged as a
+# privilege-escalating misroute (gate it in CI with --fail-on-escalation).
+# Unlisted agents default to read.
+tiers:
+  code_writer: write
+  email_drafter: write
+  scheduler: destructive
+
+intents:
+  - id: research-current
+    query: "what's the latest on the EU AI Act enforcement timeline?"
+    expect: web_researcher
+
+  # The overlap stress test: two agents both say "summarize". Which one owns
+  # standup notes — the document summarizer or the meeting recap?
+  - id: summarize-standup
+    query: "give me the key points and action items from yesterday's standup"
+    expect: meeting_recap
+  - id: summarize-article
+    query: "tl;dr this blog post I just pasted"
+    expect: doc_summarizer
+
+  - id: review-pr
+    query: "can you look over my pull request before I merge it?"
+    expect: code_reviewer
+  - id: write-feature
+    query: "add a dark-mode toggle to the settings page"
+    expect: code_writer
+
+  - id: book-meeting
+    query: "set up a 30-minute sync with Dana on Thursday afternoon"
+    expect: scheduler
+
+  # A read-only question. The right home is calendar_reader. If the forced
+  # classifier grabs `scheduler` (destructive) instead, that's a 🚨
+  # privilege-escalating misroute — a read reaching for a tool that can mutate.
+  - id: read-only-calendar
+    query: "what meetings do I have tomorrow?"
+    expect: calendar_reader

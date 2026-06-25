@@ -23,6 +23,10 @@ inputs:
     description: "Anthropic model id to route with. Empty = routeproof's cheap default."
     required: false
     default: ""
+  mode:
+    description: "Routing mode: 'host' (default, model may decline) or 'select' (forced pick, for an orchestrator's router). Empty = use the suite's mode."
+    required: false
+    default: ""
   min-confidence:
     description: "Confidence below which a passing route is flagged flaky (0..1)."
     required: false
@@ -64,6 +68,7 @@ runs:
         RP_BASELINE: ${{ inputs.baseline }}
         RP_SAMPLES: ${{ inputs.samples }}
         RP_MODEL: ${{ inputs.model }}
+        RP_MODE: ${{ inputs.mode }}
         RP_MINCONF: ${{ inputs.min-confidence }}
         RP_DRIFT: ${{ inputs.drift-tolerance }}
         RP_COVERAGE: ${{ inputs.fail-on-coverage-drop }}
@@ -77,6 +82,7 @@ runs:
         args=( "$RP_INTENTS" --server "$RP_SERVER" --baseline "$RP_BASELINE"
                --samples "$RP_SAMPLES" --min-confidence "$RP_MINCONF" --drift-tolerance "$RP_DRIFT" )
         if [ -n "$RP_MODEL" ]; then args+=( --model "$RP_MODEL" ); fi
+        if [ -n "$RP_MODE" ]; then args+=( --mode "$RP_MODE" ); fi
         if [ "$RP_COVERAGE" = "true" ]; then args+=( --fail-on-coverage-drop ); fi
         if [ "$RP_ESCALATION" = "true" ]; then args+=( --fail-on-escalation ); fi
         npx -y "routeproof@$RP_VERSION" "${args[@]}"

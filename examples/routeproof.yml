@@ -28,7 +28,7 @@ jobs:
       # server command can't start.
       - run: npm ci && npm run build
 
-      - uses: tamasPetki/routeproof@v0.2.0
+      - uses: tamasPetki/routeproof@v0.3.0
         with:
           intents: routeproof.intents.yaml
           server: "node dist/server.js"

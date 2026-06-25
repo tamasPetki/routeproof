@@ -7,7 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import type { ToolSpec } from "./types.ts";
 import { tokenize } from "./shell.ts";
 
-const VERSION = "0.2.0"; // identifies routeproof to the server in the MCP handshake
+const VERSION = "0.3.0"; // identifies routeproof to the server in the MCP handshake
 
 export async function loadToolsFromServer(command: string): Promise<ToolSpec[]> {
   const parts = tokenize(command);

@@ -96,7 +96,7 @@ npx routeproof intents.yaml --server "node dist/server.js" --baseline routeproof
 There's a GitHub Action wrapper, so the whole thing is one step:
 
 ```yaml
-- uses: tamasPetki/routeproof@v0.2.0
+- uses: tamasPetki/routeproof@v0.3.0
   with:
     intents: routeproof.intents.yaml
     server: "node dist/server.js"
@@ -119,11 +119,39 @@ The generator is pushed to use the vocabulary *users* reach for, not the words y
 
 **Honest limitation:** the same model class generates and routes, so fuzz surfaces blind spots relative to that model's sense of how users talk. It's a discovery aid that proposes queries worth keeping — promote the real ones into a suite and `--save-baseline` them.
 
+## Beyond MCP servers — test any selector (agent orchestrators, skill routers)
+
+routeproof tests *any* place a model picks one option by reading short descriptions. A multi-agent orchestrator that routes a task to one of N agents is the same problem: each agent's description is the interface, and a description that drifts as the agent evolves can silently break routing — and you'd never know, because your unit tests check the agents, not the selector.
+
+There's one difference from an MCP host: an orchestrator's router is a **forced classifier** — it must route the task to *some* agent, it can't reply "no tool fits." So routeproof has a `select` mode (`mode: select` in the suite, or `--select`) that forces a pick. (The default `host` mode lets the model decline → `none`, which is right for an MCP server but wrong for a selector — a host deciding *whether* to act vs a router deciding *which* agent acts.)
+
+Point it at your registry with the bundled zero-dependency adapter, which wraps any list of `{name, description, inputSchema}` as a thin stdio MCP server (each agent becomes a "tool"):
+
+```bash
+export ANTHROPIC_API_KEY=...
+npx routeproof examples/agents.intents.yaml \
+  --server "node examples/registry-adapter.mjs examples/agents.registry.json"
+```
+
+routeproof stops at the **selection step** — it reads which agent the router would pick and never invokes it — so this is safe to run against your real, live registry without firing anything. On the sample 11-agent registry it routes 6/7 and catches a real one:
+
+```
+Routing score: 6/7 (86%)  ·  Mode: select (forced pick)
+
+### ❌ summarize-standup — "give me the key points and action items from yesterday's standup"
+- expected `meeting_recap`, got `calendar_reader`
+```
+
+"yesterday's standup" reads as a calendar lookup, so the router grabs `calendar_reader` instead of the agent that actually recaps meetings — exactly the kind of drift a description edit causes and nothing else tests. Pin it as a baseline (`--save-baseline`, in `select` mode) and a drifted agent description fails CI before it ships. The `tiers:` / `--fail-on-escalation` safety check applies here too: a benign task that gets force-routed to a `destructive` agent is a privilege-escalating misroute. _(The selector-regression framing is thanks to [@peiyao](https://www.moltbook.com/u/peiyao), who has 10 agents and an orchestrator and put it best: "I've been testing the agents, not the selector.")_
+
+The adapter is [`examples/registry-adapter.mjs`](examples/registry-adapter.mjs) (~90 lines, no dependencies) and a sample registry + suite ship beside it — copy them and swap in your own agents.
+
 ## Modes
 
 - ✅ **eval** — score a suite, diagnose misroutes with a concrete description fix.
 - ✅ **regression** — pin a baseline, fail CI when an edit drops routing.
 - ✅ **fuzz** — generate realistic intents from your descriptions and surface the ones that mis-route.
+- ✅ **host / select** — score an MCP host's "whether to act" routing, or an orchestrator's forced "which agent" routing.
 
 ## Install / run
 

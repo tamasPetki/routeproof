@@ -10,7 +10,7 @@
 // A pre-existing failure you knowingly baselined is NOT drift — the gate fires
 // only when reality gets worse than the line you pinned.
 
-import type { EvalReport, IntentResult } from "./types.ts";
+import type { EvalReport, IntentResult, RouteMode } from "./types.ts";
 import { escalationSection } from "./report.ts";
 
 /** One intent's pinned routing outcome. */
@@ -26,6 +26,8 @@ export interface Baseline {
   version: 1;
   /** The model the baseline was pinned on — comparing across models is meaningless. */
   model: string;
+  /** Routing mode the baseline was pinned in — a select pin vs a host run is noise. */
+  mode: RouteMode;
   samplesPerIntent: number;
   minConfidence: number;
   /** intent.id -> pinned outcome */
@@ -72,6 +74,8 @@ export interface RegressionReport {
   hasCoverageDrop: boolean;
   /** Set when the baseline was pinned on a different model than this run. */
   modelMismatch?: { baseline: string; current: string };
+  /** Set when the baseline was pinned in a different routing mode than this run. */
+  modeMismatch?: { baseline: RouteMode; current: RouteMode };
 }
 
 function round(x: number): number {
@@ -92,6 +96,7 @@ export function toBaseline(report: EvalReport): Baseline {
   return {
     version: 1,
     model: report.model,
+    mode: report.mode ?? "host",
     samplesPerIntent: report.samplesPerIntent,
     minConfidence: report.minConfidence ?? 0.8,
     intents,
@@ -126,6 +131,8 @@ export function parseBaseline(data: unknown, source = "<baseline>"): Baseline {
   return {
     version: 1,
     model: typeof obj.model === "string" ? obj.model : "unknown",
+    // Baselines pinned before `mode` existed were all host-mode — default to it.
+    mode: obj.mode === "select" ? "select" : "host",
     samplesPerIntent: typeof obj.samplesPerIntent === "number" ? obj.samplesPerIntent : 0,
     minConfidence: typeof obj.minConfidence === "number" ? obj.minConfidence : 0.8,
     intents,
@@ -198,6 +205,10 @@ export function compareToBaseline(
   if (baseline.model !== report.model) {
     report_.modelMismatch = { baseline: baseline.model, current: report.model };
   }
+  const currentMode: RouteMode = report.mode ?? "host";
+  if (baseline.mode !== currentMode) {
+    report_.modeMismatch = { baseline: baseline.mode, current: currentMode };
+  }
   return report_;
 }
 
@@ -216,6 +227,13 @@ export function regressionMarkdown(
   if (cmp.modelMismatch) {
     lines.push(
       `> ⚠️ **Model mismatch:** baseline pinned on \`${cmp.modelMismatch.baseline}\`, this run used \`${cmp.modelMismatch.current}\`. Routing differs by model — re-pin the baseline on the same model you gate with, or this comparison is noise.`,
+      "",
+    );
+  }
+
+  if (cmp.modeMismatch) {
+    lines.push(
+      `> ⚠️ **Mode mismatch:** baseline pinned in \`${cmp.modeMismatch.baseline}\` mode, this run used \`${cmp.modeMismatch.current}\`. Forced-pick (select) and decline-allowed (host) routing aren't comparable — re-pin in the mode you gate with.`,
       "",
     );
   }

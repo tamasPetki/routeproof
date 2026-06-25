@@ -15,6 +15,19 @@ export interface ToolSpec {
  */
 export type Tier = "read" | "write" | "destructive";
 
+/**
+ * How the routing decision is framed for the model.
+ *
+ * - `host` (default): the model may decline to call any tool (→ `none`), exactly
+ *   like an MCP host that decides *whether* to fire a tool. Declining is a real,
+ *   safety-relevant outcome, so `expect: none` and escalation-via-none apply.
+ * - `select`: the model is FORCED to pick one tool (it can never decline) —
+ *   how a multi-agent orchestrator / classifier routes a task to one of N agents.
+ *   A wrapped agent registry is a `select` surface; `expect: none` is meaningless
+ *   here, because a forced classifier always picks something.
+ */
+export type RouteMode = "host" | "select";
+
 /** A misroute that crossed a capability boundary: expected `from`, got `to`. */
 export interface Escalation {
   /** Expected tier, or "none" when the intent asserted no tool should answer. */
@@ -36,6 +49,12 @@ export interface Intent {
 export interface IntentSuite {
   /** Optional default server command, overridable on the CLI. */
   server?: string;
+  /**
+   * How routing is framed (default `host`). Set `select` when the "server" is a
+   * forced classifier — e.g. an agent registry wrapped as an MCP server — so the
+   * model must pick one tool and can't defer. Overridable with `--mode` / `--select`.
+   */
+  mode?: RouteMode;
   /**
    * Optional map of tool name (or `*` glob, e.g. `portfolio_write_*`) → tier.
    * Tools left unlisted default to `read`. Used to flag privilege-escalating
@@ -80,6 +99,8 @@ export interface IntentResult {
 export interface EvalReport {
   server: string;
   model: string;
+  /** Routing mode in effect — `select` forced the pick; `host`/undefined allowed `none`. */
+  mode?: RouteMode;
   samplesPerIntent: number;
   /** Confidence below which a passing intent is flagged as flaky (0..1). */
   minConfidence?: number;
