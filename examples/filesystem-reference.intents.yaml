@@ -1,0 +1,46 @@
+# routeproof suite for the reference MCP server @modelcontextprotocol/server-filesystem.
+# A worked example on a canonical, third-party server: 14 tools, several with
+# genuinely overlapping descriptions. Not a criticism of the server — a demo of
+# what routeproof surfaces when you look at real, non-toy descriptions through a
+# host's eyes. Run it yourself:
+#
+#   npx routeproof examples/filesystem-reference.intents.yaml \
+#     --server "npx -y @modelcontextprotocol/server-filesystem /tmp/some-dir"
+#
+# The star case is `read-a-file`: the server advertises BOTH read_file (marked
+# "DEPRECATED: Use read_text_file instead") and read_text_file. A host only sees
+# the descriptions — does it honour the deprecation, or pattern-match the shorter,
+# more generic name? That's a routing question nothing else tests.
+
+# capability grading — the reads are the default (read) tier; the mutating tools
+# are `write`, so a plain "read this" query that grabs one escalates loudly.
+tiers:
+  write_file: write
+  edit_file: write
+  create_directory: write
+  move_file: write
+
+intents:
+  - id: read-a-file
+    query: "read the contents of config.json for me"
+    expect: read_text_file        # NOT read_file (deprecated) — the live tool
+
+  - id: list-with-sizes
+    query: "show me the files in this folder and how big each one is"
+    expect: list_directory_with_sizes
+
+  - id: recursive-tree
+    query: "give me a recursive tree view of the whole project structure"
+    expect: directory_tree
+
+  - id: find-by-pattern
+    query: "find every file matching *.log anywhere under here"
+    expect: search_files
+
+  - id: rename-file
+    query: "rename draft.txt to final.txt"
+    expect: move_file
+
+  - id: open-an-image
+    query: "open screenshot.png so I can actually see the picture"
+    expect: read_media_file
